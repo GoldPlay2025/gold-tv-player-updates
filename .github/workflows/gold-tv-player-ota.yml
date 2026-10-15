@@ -3,6 +3,10 @@ name: Gold TV Player - publicar OTA com seguranca
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gold-tv-player-ota.yml
   workflow_dispatch:
     inputs:
       release_tag:
@@ -19,7 +23,7 @@ concurrency:
 
 jobs:
   validar-e-publicar:
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -30,34 +34,42 @@ jobs:
           ref: main
           persist-credentials: true
 
-      - name: Preparar ferramentas do Android
-        uses: android-actions/setup-android@v3
-
-      - name: Instalar validador de APK
-        run: sdkmanager --install "build-tools;35.0.0"
+      - name: Preparar validadores do APK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          TOOLS="$SDK_ROOT/build-tools/35.0.0"
+          if [ ! -x "$TOOLS/apksigner" ] || [ ! -x "$TOOLS/aapt" ]; then
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;35.0.0"
+          fi
+          test -x "$TOOLS/apksigner"
+          test -x "$TOOLS/aapt"
+          echo "ANDROID_BUILD_TOOLS_PATH=$TOOLS" >> "$GITHUB_ENV"
 
       - name: Baixar APK novo e APK anterior
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || (github.event_name == 'release' && github.event.release.tag_name) || '' }}
         run: |
           set -euo pipefail
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+          if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG="$(gh release view --json tagName --jq .tagName)"
+          fi
+          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+(\.[0-9]+)+$ ]]; then
             echo "::error::Tag invalida: $RELEASE_TAG"; exit 1
           fi
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
           gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
             --jq '(.isDraft == false) and (.isPrerelease == false)' | grep -qx true \
             || { echo "::error::A release deve estar publicada e nao ser pre-release"; exit 1; }
           mkdir -p atual anterior
           gh release download "$RELEASE_TAG" --pattern Gold-TV-Player.apk --dir atual
           test -s atual/Gold-TV-Player.apk || { echo "::error::APK novo ausente"; exit 1; }
-          ANTERIOR_TAG="$(python3 -c 'import json; print("v"+json.load(open("gold_update.json"))["version_name"])')"
+          ANTERIOR_TAG="$(python3 -c 'import json; print(json.load(open("gold_update.json"))["apk_url"].split("/releases/download/")[1].split("/")[0])')"
           gh release download "$ANTERIOR_TAG" --pattern Gold-TV-Player.apk --dir anterior
           test -s anterior/Gold-TV-Player.apk || { echo "::error::APK anterior ausente"; exit 1; }
 
       - name: Validar versao, integridade, pacote e certificado
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.release.tag_name }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -68,10 +80,10 @@ jobs:
           import subprocess
           from pathlib import Path
 
-          android_sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
-          if not android_sdk:
-              raise SystemExit("Android SDK nao localizado")
-          tools = Path(android_sdk) / "build-tools" / "35.0.0"
+          build_tools = os.environ.get("ANDROID_BUILD_TOOLS_PATH")
+          if not build_tools:
+              raise SystemExit("Android build-tools nao localizado")
+          tools = Path(build_tools)
           novo = Path("atual/Gold-TV-Player.apk")
           antigo = Path("anterior/Gold-TV-Player.apk")
           manifest_path = Path("gold_update.json")
@@ -115,7 +127,7 @@ jobs:
           codigo = int(codigo)
           if pacote != "br.com.goldplay.iptv":
               raise SystemExit(f"Pacote inesperado: {pacote}")
-          if os.environ["RELEASE_TAG"] != "v" + nome:
+          if os.environ["RELEASE_TAG"] not in (nome, "v" + nome):
               raise SystemExit("Tag da release diferente do versionName do APK")
           if codigo <= int(manifest["version_code"]):
               raise SystemExit("versionCode deve ser maior que a versao publicada")
@@ -127,7 +139,7 @@ jobs:
               "version_name": nome,
               "apk_url": (
                   "https://github.com/GoldPlay2025/gold-tv-player-updates/"
-                  f"releases/download/v{nome}/Gold-TV-Player.apk"
+                  f"releases/download/{os.environ['RELEASE_TAG']}/Gold-TV-Player.apk"
               ),
               "sha256": digest(novo),
           })
