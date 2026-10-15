@@ -4,10 +4,10 @@ Este repositório distribui o **Gold TV Player**. A partir de agora, não é pre
 
 ## Publicação no Android Studio e GitHub
 
-1. No Android Studio, aumente o `versionCode` e o `versionName`. A última versão publicada é `129 / 1.1.0.32.65`; portanto, a próxima pode ser `130 / 1.1.0.32.66`.
+1. No Android Studio, aumente o `versionCode` e o `versionName`. A última versão publicada é `129 / 1.1.0.32.66`; portanto, a próxima deve usar `versionCode` maior que `130`.
 2. Gere um **APK assinado com o mesmo certificado usado na versão anterior**. Evite usar um novo computador/perfil de assinatura sem preservar a chave existente. **Não publique AAB**, pois a atualização OTA usa APK.
 3. Abra [Criar release](https://github.com/GoldPlay2025/gold-tv-player-updates/releases/new).
-4. Use uma tag `v` seguida do `versionName` **exatamente como consta dentro do APK**, por exemplo: `v1.1.0.32.66`.
+4. Use uma tag que corresponda ao `versionName` do APK. Aceitamos **`v1.1.0.32.66` ou `1.1.0.32.66`**; recomenda-se manter o prefixo `v` nas próximas versões por consistência.
 5. Anexe o arquivo com o nome **exato `Gold-TV-Player.apk`**. Se necessário, renomeie o APK gerado antes de anexar, sem modificar seu conteúdo.
 6. Publique como **Release**, e não como pré-release. O workflow [Gold TV Player - publicar OTA com seguranca](.github/workflows/gold-tv-player-ota.yml) inicia automaticamente.
 
@@ -31,3 +31,7 @@ Aguarde a execução ficar verde em **Actions** e confirme que `gold_update.json
 Para uma correção/reprocessamento, o workflow pode ser executado manualmente pela aba Actions com a tag de uma Release publicada. Isso não permite reaproveitar `versionCode` antigo.
 
 Não remova releases anteriores: o fluxo compara a nova assinatura com o APK anterior, e usuários antigos podem precisar da referência da versão anterior.
+
+## Recuperar uma Release ja publicada quando a automacao falhar
+
+No GitHub, abra **Actions → Gold TV Player - publicar OTA com seguranca → Run workflow**; informe a tag exata ja publicada (com ou sem `v`). A automacao verifica o APK antes de disponibiliza-lo pelo manifesto. Os logs da execucao indicam falhas de assinatura, integridade, pacote, numeracao ou rede.
