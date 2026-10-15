@@ -1,0 +1,149 @@
+name: Gold TV Player - publicar OTA com seguranca
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag da release ja publicada (ex: v1.1.0.32.66)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gold-tv-player-ota
+  cancel-in-progress: false
+
+jobs:
+  validar-e-publicar:
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Conferir manifesto atual da branch principal
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Preparar ferramentas do Android
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar validador de APK
+        run: sdkmanager --install "build-tools;35.0.0"
+
+      - name: Baixar APK novo e APK anterior
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+            echo "::error::Tag invalida: $RELEASE_TAG"; exit 1
+          fi
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq '(.isDraft == false) and (.isPrerelease == false)' | grep -qx true \
+            || { echo "::error::A release deve estar publicada e nao ser pre-release"; exit 1; }
+          mkdir -p atual anterior
+          gh release download "$RELEASE_TAG" --pattern Gold-TV-Player.apk --dir atual
+          test -s atual/Gold-TV-Player.apk || { echo "::error::APK novo ausente"; exit 1; }
+          ANTERIOR_TAG="$(python3 -c 'import json; print("v"+json.load(open("gold_update.json"))["version_name"])')"
+          gh release download "$ANTERIOR_TAG" --pattern Gold-TV-Player.apk --dir anterior
+          test -s anterior/Gold-TV-Player.apk || { echo "::error::APK anterior ausente"; exit 1; }
+
+      - name: Validar versao, integridade, pacote e certificado
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          android_sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+          if not android_sdk:
+              raise SystemExit("Android SDK nao localizado")
+          tools = Path(android_sdk) / "build-tools" / "35.0.0"
+          novo = Path("atual/Gold-TV-Player.apk")
+          antigo = Path("anterior/Gold-TV-Player.apk")
+          manifest_path = Path("gold_update.json")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+          def digest(arquivo):
+              h = hashlib.sha256()
+              with arquivo.open("rb") as stream:
+                  for parte in iter(lambda: stream.read(1048576), b""):
+                      h.update(parte)
+              return h.hexdigest()
+
+          def signer(arquivo):
+              saida = subprocess.check_output(
+                  [str(tools / "apksigner"), "verify", "--print-certs", str(arquivo)],
+                  text=True, stderr=subprocess.STDOUT
+              )
+              certificado = re.search(r"Signer #1 certificate SHA-256 digest:\s*([a-fA-F0-9]+)", saida)
+              if not certificado:
+                  raise SystemExit(f"Certificado nao encontrado em {arquivo}")
+              return certificado.group(1).lower()
+
+          anterior_hash = digest(antigo)
+          if anterior_hash != manifest.get("sha256", "").lower():
+              raise SystemExit("SHA-256 da release anterior difere do manifesto. OTA mantido intacto.")
+
+          if signer(novo) != signer(antigo):
+              raise SystemExit("Assinatura diferente da versao instalada. OTA bloqueado para evitar falha de instalacao.")
+
+          badging = subprocess.check_output(
+              [str(tools / "aapt"), "dump", "badging", str(novo)],
+              text=True, stderr=subprocess.STDOUT
+          )
+          meta = re.search(
+              r"^package:\s+name='([^']+)'\s+versionCode='(\d+)'\s+versionName='([^']+)'",
+              badging, re.MULTILINE
+          )
+          if not meta:
+              raise SystemExit("Nao foi possivel ler versao e package do APK")
+          pacote, codigo, nome = meta.groups()
+          codigo = int(codigo)
+          if pacote != "br.com.goldplay.iptv":
+              raise SystemExit(f"Pacote inesperado: {pacote}")
+          if os.environ["RELEASE_TAG"] != "v" + nome:
+              raise SystemExit("Tag da release diferente do versionName do APK")
+          if codigo <= int(manifest["version_code"]):
+              raise SystemExit("versionCode deve ser maior que a versao publicada")
+          if novo.stat().st_size < 1_000_000:
+              raise SystemExit("APK pequeno demais para uma release valida")
+
+          manifest.update({
+              "version_code": codigo,
+              "version_name": nome,
+              "apk_url": (
+                  "https://github.com/GoldPlay2025/gold-tv-player-updates/"
+                  f"releases/download/v{nome}/Gold-TV-Player.apk"
+              ),
+              "sha256": digest(novo),
+          })
+          manifest_path.write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          print(f"APK validado: {pacote} / {nome} / versionCode={codigo}")
+          print("SHA-256 e assinatura conferidos; manifesto atualizado.")
+          PY
+
+      - name: Atualizar gold_update.json automaticamente
+        run: |
+          set -euo pipefail
+          git config user.name "gold-tv-player-ota[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gold_update.json
+          git diff --cached --quiet && { echo "Nenhuma alteracao necessaria"; exit 0; }
+          git commit -m "chore(ota): publicar manifesto validado"
+          git push origin HEAD:main
