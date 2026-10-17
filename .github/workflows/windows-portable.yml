@@ -1,0 +1,75 @@
+name: Gold TV Player Windows Portable
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-portable.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  portable:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Baixar instalador oficial
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Invoke-WebRequest -Uri 'https://github.com/GoldPlay2025/gold-tv-player-updates/releases/download/windows-v1.1.2/Gold-TV-Player-Setup-1.1.2.exe' -OutFile setup.exe
+          $hash=(Get-FileHash setup.exe -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne 'e9469907b4352992fff6f11a8017afd5c0005e98a7cca63c365dea082cb2a40b') { throw 'Hash do instalador difere do oficial' }
+      - name: Extrair e identificar aplicativo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force extracted | Out-Null
+          & 'C:\Program Files\7-Zip\7z.exe' x setup.exe '-oextracted' -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Falha na extração do instalador' }
+          Get-ChildItem extracted -Recurse -File | Select-Object -First 30 FullName | Format-Table
+          $exe=Get-ChildItem extracted -Recurse -File -Filter '*.exe' | Where-Object { $_.Name -notmatch '(?i)unins|uninstall|setup|update|crash|helper|elevate' } | Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $exe) { throw 'Executável principal não identificado; não publicar' }
+          $dir=$exe.Directory.FullName
+          New-Item -ItemType Directory -Force payload | Out-Null
+          Copy-Item -LiteralPath (Join-Path $dir '*') -Destination payload -Recurse -Force -ErrorAction Stop
+          Set-Content -Path app-name.txt -Value $exe.Name -NoNewline
+          Write-Host "Aplicativo: $($exe.Name)"
+      - name: Compilar EXE portátil independente com NSIS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          choco install nsis --yes --no-progress
+          $app=(Get-Content app-name.txt -Raw).Trim()
+          $script=@'
+          Unicode true
+          !include "FileFunc.nsh"
+          Name "Gold TV Player Portable"
+          OutFile "Gold-TV-Player-Portable-1.1.2.exe"
+          RequestExecutionLevel user
+          SilentInstall silent
+          AutoCloseWindow true
+          SetCompressor /SOLID lzma
+          Section
+            InitPluginsDir
+            SetOutPath "$PLUGINSDIR\GoldTVPlayer"
+            File /r "payload\*"
+            ExecWait '"$PLUGINSDIR\GoldTVPlayer\__APP__"'
+          SectionEnd
+          '@
+          $script=$script.Replace('__APP__',$app)
+          Set-Content portable.nsi $script -Encoding UTF8
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' portable.nsi
+          if ($LASTEXITCODE -ne 0) { throw 'Falha na compilação' }
+          if (-not (Test-Path 'Gold-TV-Player-Portable-1.1.2.exe')) { throw 'Arquivo Portable ausente' }
+          Get-FileHash 'Gold-TV-Player-Portable-1.1.2.exe' -Algorithm SHA256
+      - name: Publicar release Portable sem afetar Android
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh release view windows-portable-v1.1.2 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create windows-portable-v1.1.2 --title 'Gold TV Player Windows Portable 1.1.2' --notes 'Executável portátil Windows 10/11 x64; gerado a partir do instalador oficial e validado por SHA-256.' --latest=false
+          }
+          gh release upload windows-portable-v1.1.2 'Gold-TV-Player-Portable-1.1.2.exe' --clobber
