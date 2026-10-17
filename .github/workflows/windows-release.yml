@@ -1,0 +1,48 @@
+name: Gold TV Player Windows - release do instalador
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - windows/parts/**
+      - .github/workflows/windows-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gold-play-windows-v1.1.2
+  cancel-in-progress: false
+
+jobs:
+  distribuir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Reconstruir e validar instalador Windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p windows/dist
+          cat windows/parts/Gold-TV-Player-Setup-1.1.2.exe.part{00..13} > windows/dist/Gold-TV-Player-Setup-1.1.2.exe
+          echo "e9469907b4352992fff6f11a8017afd5c0005e98a7cca63c365dea082cb2a40b  windows/dist/Gold-TV-Player-Setup-1.1.2.exe" | sha256sum -c -
+          test "$(stat -c%s windows/dist/Gold-TV-Player-Setup-1.1.2.exe)" -eq 10953728
+
+      - name: Publicar instalador na Release Windows (sem substituir Latest Android)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view windows-v1.1.2 >/dev/null 2>&1; then
+            gh release create windows-v1.1.2 \
+              --title "Gold TV Player Windows Edition 1.1.2" \
+              --notes "Windows 10/11 x64. Instalador oficial da edicao Windows, separado do canal Android. SHA-256: e9469907b4352992fff6f11a8017afd5c0005e98a7cca63c365dea082cb2a40b" \
+              --latest=false
+          fi
+          gh release upload windows-v1.1.2 windows/dist/Gold-TV-Player-Setup-1.1.2.exe --clobber
+          gh release view windows-v1.1.2 --json assets --jq '.assets[].name' | grep -Fx Gold-TV-Player-Setup-1.1.2.exe
