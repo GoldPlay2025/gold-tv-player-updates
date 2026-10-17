@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0-preview1",
-  "download_url": "",
-  "sha256": "",
-  "notes": "Gold TV Player Windows Edition: canal de atualizacoes separado do Android. Primeira distribuicao em testes; nenhuma atualizacao disponivel."
+  "version": "1.1.2",
+  "download_url": "https://github.com/GoldPlay2025/gold-tv-player-updates/releases/download/windows-v1.1.2/Gold-TV-Player-Setup-1.1.2.exe",
+  "sha256": "e9469907b4352992fff6f11a8017afd5c0005e98a7cca63c365dea082cb2a40b",
+  "notes": "Gold TV Player Windows Edition 1.1.2 — interface premium, categorias com fonte ampliada, logos de canais e infobar com ocultacao suave."
 }
