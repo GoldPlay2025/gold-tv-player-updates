@@ -31,7 +31,7 @@ jobs:
           if (-not $exe) { throw 'Executável principal não identificado; não publicar' }
           $dir=$exe.Directory.FullName
           New-Item -ItemType Directory -Force payload | Out-Null
-          Copy-Item -LiteralPath (Join-Path $dir '*') -Destination payload -Recurse -Force -ErrorAction Stop
+          Copy-Item -Path (Join-Path $dir '*') -Destination payload -Recurse -Force -ErrorAction Stop
           Set-Content -Path app-name.txt -Value $exe.Name -NoNewline
           Write-Host "Aplicativo: $($exe.Name)"
       - name: Compilar EXE portátil independente com NSIS
