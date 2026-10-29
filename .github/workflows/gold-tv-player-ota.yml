@@ -55,7 +55,7 @@ jobs:
           if [ -z "$RELEASE_TAG" ]; then
             RELEASE_TAG="$(gh release view --json tagName --jq .tagName)"
           fi
-          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+(\.[0-9]+)+$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^[vV]?[0-9]+(\.[0-9]+)+$ ]]; then
             echo "::error::Tag invalida: $RELEASE_TAG"; exit 1
           fi
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
@@ -127,7 +127,7 @@ jobs:
           codigo = int(codigo)
           if pacote != "br.com.goldplay.iptv":
               raise SystemExit(f"Pacote inesperado: {pacote}")
-          if os.environ["RELEASE_TAG"] not in (nome, "v" + nome):
+          if os.environ["RELEASE_TAG"] not in (nome, "v" + nome, "V" + nome):
               raise SystemExit("Tag da release diferente do versionName do APK")
           if codigo <= int(manifest["version_code"]):
               raise SystemExit("versionCode deve ser maior que a versao publicada")
