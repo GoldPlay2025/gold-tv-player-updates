@@ -1,8 +1,8 @@
 {
-  "version_code": 153,
-  "version_name": "1.1.0.32.89",
-  "apk_url": "https://github.com/GoldPlay2025/gold-tv-player-updates/releases/download/v1.1.0.32.89/Gold-TV-Player.apk",
-  "sha256": "6ccd12e5e45ae71e747048a22b74ddde191992d729be4bd5df249011b712cc1b",
+  "version_code": 155,
+  "version_name": "1.1.0.32.91",
+  "apk_url": "https://github.com/GoldPlay2025/gold-tv-player-updates/releases/download/V1.1.0.32.91/Gold-TV-Player.apk",
+  "sha256": "a47f2198c1eff292018b03307f34d81d9fed2383c4b444a26376ef7aa6f5d8d9",
   "mandatory": false,
   "message": "Nova versão do Gold TV Player disponível."
 }
